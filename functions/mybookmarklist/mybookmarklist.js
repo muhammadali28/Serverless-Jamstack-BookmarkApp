@@ -1,35 +1,71 @@
 const { ApolloServer, gql } = require('apollo-server-lambda')
+var faunadb = require('faunadb'),
+  q = faunadb.query;
 
 const typeDefs = gql`
   type Query {
-    hello: String
-    allAuthors: [Author!]
-    author(id: Int!): Author
-    authorByName(name: String!): Author
+    bookmarks: [Bookmark]
   }
-  type Author {
+  type Bookmark {
     id: ID!
-    name: String!
-    married: Boolean!
+    title: String!
+    url: String!
+  }
+  type Mutation {
+    addBookmark(title: String!, url: String!): Bookmark
   }
 `
 
-const authors = [
-  { id: 1, name: 'Terry Pratchett', married: false },
-  { id: 2, name: 'Stephen King', married: true },
-  { id: 3, name: 'JK Rowling', married: false },
-]
-
 const resolvers = {
   Query: {
-    hello: () => 'Hello, world!',
-    allAuthors: () => authors,
-    author: () => {},
-    authorByName: (root, args) => {
-      console.log('hihhihi', args.name)
-      return authors.find((author) => author.name === args.name) || 'NOTFOUND'
-    },
+    bookmarks: async (root, args, context) => {
+      try {
+        var adminClient = new faunadb.Client({ secret: 'fnAEe7CLrmACSQWAW9EtFw10adQSQ_uUuYS9tNFn' });
+        const result = await adminClient.query(
+          q.Map(
+            q.Paginate(q.Match(q.Index('url'))),
+            q.Lambda(x => q.Get(x))
+          )
+        )
+        console.log(result.data)
+
+        return result.data.map(d => {
+          return {
+            id: d.ts,
+            title: d.data.title,
+            url: d.data.url
+          }
+        })
+
+      } catch (err) {
+        console.log(err);
+      }
+    }
   },
+  Mutation: {
+    addBookmark: async (_, { title, url }) => {
+      console.log(title, url)
+      try {
+        var adminClient = new faunadb.Client({ secret: 'fnAEe7CLrmACSQWAW9EtFw10adQSQ_uUuYS9tNFn' });
+
+        const result = await adminClient.query(
+          q.Create(
+            q.Collection('bookmarks'),
+            {
+              data: {
+                title,
+                url
+              }
+            },
+          )
+        )
+        return result.data.data
+      }
+      catch (err) {
+        console.log(err)
+      }
+    }
+  }
 }
 
 const server = new ApolloServer({
@@ -37,6 +73,4 @@ const server = new ApolloServer({
   resolvers,
 })
 
-const handler = server.createHandler()
-
-module.exports = { handler }
+exports.handler = server.createHandler()
